@@ -1,7 +1,7 @@
 const MENU_ID = '01040100000000000001';
 const DATE = '20261024';
 const POLL_INTERVAL_MS = 20_000;
-const SCHEDULED_RUN_MS = Number(process.env.POLL_WINDOW_MS ?? 9 * 60_000 + 30_000);
+const WATCH_RUN_MS = 29 * 60_000;
 const BOOKING_URL = 'https://reservation.everland.com/web/el.do?high_menu_id=0104&menu_id=01040100000000000001&method=getProduct&top_menu_id=01';
 const STATUS_URL = new URL('https://reservation.everland.com/web/comm.do');
 STATUS_URL.search = new URLSearchParams({
@@ -51,14 +51,34 @@ async function checkAvailability() {
   return true;
 }
 
+async function startNextRun() {
+  const token = process.env.GITHUB_TOKEN;
+  if (!token) throw new Error('다음 확인 작업을 시작할 GitHub 토큰이 없습니다.');
+  const response = await fetch('https://api.github.com/repos/hijinnn/everland-valet-alert/actions/workflows/valet-alert.yml/dispatches', {
+    method: 'POST',
+    headers: {
+      Accept: 'application/vnd.github+json',
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      'User-Agent': 'EverlandValetAvailability/1.0',
+    },
+    body: JSON.stringify({ ref: 'main', inputs: { continuous: 'true' } }),
+    signal: AbortSignal.timeout(15000),
+  });
+  if (response.status !== 204) throw new Error(`다음 확인 작업 시작 실패: HTTP ${response.status}`);
+  console.log('다음 확인 작업 시작 요청 완료');
+}
+
 async function main() {
   if (process.env.TEST_NOTIFICATION === 'true') {
     await sendTelegram('✅ 에버랜드 발레파킹 알림 테스트입니다. 실제 예약 가능 상태를 뜻하지 않습니다.');
     return;
   }
 
-  const scheduled = process.env.GITHUB_EVENT_NAME === 'schedule';
-  const deadline = Date.now() + (scheduled ? SCHEDULED_RUN_MS : 0);
+  const continuous = process.env.CONTINUOUS === 'true' || process.env.GITHUB_EVENT_NAME === 'schedule';
+  const testSeconds = Number(process.env.FIRST_RUN_SECONDS || 0);
+  const runMs = testSeconds > 0 ? testSeconds * 1000 : WATCH_RUN_MS;
+  const deadline = Date.now() + (continuous ? runMs : 0);
   let nextCheck = Date.now();
   let notified = false;
   let successfulChecks = 0;
@@ -79,17 +99,18 @@ async function main() {
         notified = false;
       }
     } catch (error) {
-      if (!scheduled) throw error;
+      if (!continuous) throw error;
       console.error(`조회 또는 알림 오류: ${error.message}`);
     }
 
-    if (!scheduled) break;
+    if (!continuous) break;
     nextCheck += POLL_INTERVAL_MS;
     const delay = Math.max(0, nextCheck - Date.now());
     if (Date.now() + delay >= deadline) break;
     await new Promise(resolve => setTimeout(resolve, delay));
   } while (true);
 
+  if (!bookingClosed() && continuous && process.env.DRY_RUN !== '1') await startNextRun();
   if (!bookingClosed() && successfulChecks === 0) throw new Error('모든 예약 상태 조회가 실패했습니다.');
 }
 

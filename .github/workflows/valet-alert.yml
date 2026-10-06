@@ -9,15 +9,27 @@ on:
         description: 'Send a Telegram test message'
         type: boolean
         default: false
+      continuous:
+        description: 'Keep checking every 20 seconds'
+        type: boolean
+        default: false
+      first_run_seconds:
+        description: 'Optional short first run for validation'
+        type: number
+        default: 0
 
 concurrency:
-  group: valet-${{ github.event_name == 'schedule' && 'schedule' || github.run_id }}
+  group: valet-${{ github.event_name == 'schedule' && 'watch' || inputs.continuous && 'watch' || github.run_id }}
   cancel-in-progress: false
+
+permissions:
+  actions: write
+  contents: read
 
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 32
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -29,3 +41,6 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           TEST_NOTIFICATION: ${{ inputs.test_notification }}
+          CONTINUOUS: ${{ inputs.continuous }}
+          FIRST_RUN_SECONDS: ${{ inputs.first_run_seconds }}
+          GITHUB_TOKEN: ${{ github.token }}
