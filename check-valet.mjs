@@ -1,5 +1,7 @@
 const MENU_ID = '01040100000000000001';
 const DATE = '20261024';
+const POLL_INTERVAL_MS = 20_000;
+const SCHEDULED_RUN_MS = Number(process.env.POLL_WINDOW_MS ?? 9 * 60_000 + 30_000);
 const BOOKING_URL = 'https://reservation.everland.com/web/el.do?high_menu_id=0104&menu_id=01040100000000000001&method=getProduct&top_menu_id=01';
 const STATUS_URL = new URL('https://reservation.everland.com/web/comm.do');
 STATUS_URL.search = new URLSearchParams({
@@ -12,32 +14,27 @@ async function sendTelegram(message) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   const chatId = process.env.TELEGRAM_CHAT_ID;
   if (!token || !chatId) throw new Error('TELEGRAM_BOT_TOKEN 또는 TELEGRAM_CHAT_ID가 없습니다.');
-  const telegramResponse = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+  const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ chat_id: chatId, text: message, disable_web_page_preview: true }),
     signal: AbortSignal.timeout(15000),
   });
-  const result = await telegramResponse.json();
-  if (!telegramResponse.ok || result.ok !== true) {
-    throw new Error(`텔레그램 전송 실패: HTTP ${telegramResponse.status}, ${result.description ?? '원인 불명'}`);
+  const result = await response.json();
+  if (!response.ok || result.ok !== true) {
+    throw new Error(`텔레그램 전송 실패: HTTP ${response.status}, ${result.description ?? '원인 불명'}`);
   }
   console.log('텔레그램 알림 전송 완료');
 }
 
-async function main() {
-  if (process.env.TEST_NOTIFICATION === 'true') {
-    await sendTelegram('✅ 에버랜드 발레파킹 알림 테스트입니다. 실제 예약 가능 상태를 뜻하지 않습니다.');
-    return;
-  }
+function bookingClosed() {
   const today = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit',
   }).format(new Date()).replaceAll('-', '');
-  if (today >= DATE) {
-    console.log('예약 전날이 지나 확인을 종료합니다.');
-    return;
-  }
+  return today >= DATE;
+}
 
+async function checkAvailability() {
   const response = await fetch(STATUS_URL, {
     headers: { 'User-Agent': 'Mozilla/5.0 (compatible; EverlandValetAvailability/1.0)' },
     signal: AbortSignal.timeout(15000),
@@ -47,15 +44,53 @@ async function main() {
   const code = String(data?.result?.resultCode ?? '');
   if (code === '-1') {
     console.log('2026-10-24: 잔여 없음');
-    return;
+    return false;
   }
   if (code !== '00') throw new Error(`알 수 없는 에버랜드 응답: ${JSON.stringify(data)}`);
-
   console.log('2026-10-24: 예약 가능 상태 감지 (정확한 잔여 대수는 제공되지 않음)');
-  if (process.env.DRY_RUN === '1') return;
+  return true;
+}
 
+async function main() {
+  if (process.env.TEST_NOTIFICATION === 'true') {
+    await sendTelegram('✅ 에버랜드 발레파킹 알림 테스트입니다. 실제 예약 가능 상태를 뜻하지 않습니다.');
+    return;
+  }
+
+  const scheduled = process.env.GITHUB_EVENT_NAME === 'schedule';
+  const deadline = Date.now() + (scheduled ? SCHEDULED_RUN_MS : 0);
+  let nextCheck = Date.now();
+  let notified = false;
+  let successfulChecks = 0;
   const message = `🚗 에버랜드 10월 24일 발레파킹 예약 가능 표시가 나왔습니다.\n1대 이상 가능할 수 있지만 2대 가능 여부는 예약 화면에서 확인해야 합니다.\n${BOOKING_URL}\n\n2대 예약을 마치면 GitHub Actions의 Valet availability alert 워크플로를 중지하세요.`;
-  await sendTelegram(message);
+
+  do {
+    if (bookingClosed()) {
+      console.log('예약 전날이 지나 확인을 종료합니다.');
+      break;
+    }
+    try {
+      const available = await checkAvailability();
+      successfulChecks += 1;
+      if (available && !notified && process.env.DRY_RUN !== '1') {
+        await sendTelegram(message);
+        notified = true;
+      } else if (!available) {
+        notified = false;
+      }
+    } catch (error) {
+      if (!scheduled) throw error;
+      console.error(`조회 또는 알림 오류: ${error.message}`);
+    }
+
+    if (!scheduled) break;
+    nextCheck += POLL_INTERVAL_MS;
+    const delay = Math.max(0, nextCheck - Date.now());
+    if (Date.now() + delay >= deadline) break;
+    await new Promise(resolve => setTimeout(resolve, delay));
+  } while (true);
+
+  if (!bookingClosed() && successfulChecks === 0) throw new Error('모든 예약 상태 조회가 실패했습니다.');
 }
 
 main().catch(error => {

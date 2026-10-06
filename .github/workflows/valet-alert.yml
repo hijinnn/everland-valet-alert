@@ -10,10 +10,14 @@ on:
         type: boolean
         default: false
 
+concurrency:
+  group: valet-${{ github.event_name == 'schedule' && 'schedule' || github.run_id }}
+  cancel-in-progress: false
+
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
