@@ -8,7 +8,28 @@ STATUS_URL.search = new URLSearchParams({
   visit_pl_dt: DATE,
 }).toString();
 
+async function sendTelegram(message) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+  if (!token || !chatId) throw new Error('TELEGRAM_BOT_TOKEN 또는 TELEGRAM_CHAT_ID가 없습니다.');
+  const telegramResponse = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chat_id: chatId, text: message, disable_web_page_preview: true }),
+    signal: AbortSignal.timeout(15000),
+  });
+  const result = await telegramResponse.json();
+  if (!telegramResponse.ok || result.ok !== true) {
+    throw new Error(`텔레그램 전송 실패: HTTP ${telegramResponse.status}, ${result.description ?? '원인 불명'}`);
+  }
+  console.log('텔레그램 알림 전송 완료');
+}
+
 async function main() {
+  if (process.env.TEST_NOTIFICATION === 'true') {
+    await sendTelegram('✅ 에버랜드 발레파킹 알림 테스트입니다. 실제 예약 가능 상태를 뜻하지 않습니다.');
+    return;
+  }
   const today = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit',
   }).format(new Date()).replaceAll('-', '');
@@ -33,21 +54,8 @@ async function main() {
   console.log('2026-10-24: 예약 가능 상태 감지 (정확한 잔여 대수는 제공되지 않음)');
   if (process.env.DRY_RUN === '1') return;
 
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  const chatId = process.env.TELEGRAM_CHAT_ID;
-  if (!token || !chatId) throw new Error('TELEGRAM_BOT_TOKEN 또는 TELEGRAM_CHAT_ID가 없습니다.');
   const message = `🚗 에버랜드 10월 24일 발레파킹 예약 가능 표시가 나왔습니다.\n1대 이상 가능할 수 있지만 2대 가능 여부는 예약 화면에서 확인해야 합니다.\n${BOOKING_URL}\n\n2대 예약을 마치면 GitHub Actions의 Valet availability alert 워크플로를 중지하세요.`;
-  const telegramResponse = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ chat_id: chatId, text: message, disable_web_page_preview: true }),
-    signal: AbortSignal.timeout(15000),
-  });
-  const result = await telegramResponse.json();
-  if (!telegramResponse.ok || result.ok !== true) {
-    throw new Error(`텔레그램 전송 실패: HTTP ${telegramResponse.status}, ${result.description ?? '원인 불명'}`);
-  }
-  console.log('텔레그램 알림 전송 완료');
+  await sendTelegram(message);
 }
 
 main().catch(error => {

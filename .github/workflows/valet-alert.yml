@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: '2/5 * * * *'
   workflow_dispatch:
+    inputs:
+      test_notification:
+        description: 'Send a Telegram test message'
+        type: boolean
+        default: false
 
 jobs:
   check:
@@ -19,3 +24,4 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TEST_NOTIFICATION: ${{ inputs.test_notification }}
