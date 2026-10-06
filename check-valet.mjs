@@ -34,6 +34,16 @@ function bookingClosed() {
   return today >= DATE;
 }
 
+function checkedAtKst() {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Seoul',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+  return `${values.year}-${values.month}-${values.day} ${values.hour}:${values.minute}:${values.second} KST`;
+}
+
 async function checkAvailability() {
   const response = await fetch(STATUS_URL, {
     headers: { 'User-Agent': 'Mozilla/5.0 (compatible; EverlandValetAvailability/1.0)' },
@@ -43,11 +53,11 @@ async function checkAvailability() {
   const data = await response.json();
   const code = String(data?.result?.resultCode ?? '');
   if (code === '-1') {
-    console.log('2026-10-24: 잔여 없음');
+    console.log(`2026-10-24 (확인: ${checkedAtKst()}): 잔여 없음`);
     return false;
   }
   if (code !== '00') throw new Error(`알 수 없는 에버랜드 응답: ${JSON.stringify(data)}`);
-  console.log('2026-10-24: 예약 가능 상태 감지 (정확한 잔여 대수는 제공되지 않음)');
+  console.log(`2026-10-24 (확인: ${checkedAtKst()}): 예약 가능 상태 감지 (정확한 잔여 대수는 제공되지 않음)`);
   return true;
 }
 
@@ -100,7 +110,7 @@ async function main() {
       }
     } catch (error) {
       if (!continuous) throw error;
-      console.error(`조회 또는 알림 오류: ${error.message}`);
+      console.error(`확인: ${checkedAtKst()} - 조회 또는 알림 오류: ${error.message}`);
     }
 
     if (!continuous) break;
