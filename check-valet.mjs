@@ -1,6 +1,6 @@
 const MENU_ID = '01040100000000000001';
 const DATE = '20261024';
-const POLL_INTERVAL_MS = 20_000;
+const POLL_INTERVAL_MS = 10_000;
 const WATCH_RUN_MS = 29 * 60_000;
 const BOOKING_URL = 'https://reservation.everland.com/web/el.do?high_menu_id=0104&menu_id=01040100000000000001&method=getProduct&top_menu_id=01';
 const STATUS_URL = new URL('https://reservation.everland.com/web/comm.do');
